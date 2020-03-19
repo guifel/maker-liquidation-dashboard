@@ -45,7 +45,7 @@ def main():
     flipper = Flipper(web3=w3, address=Address(FLIPPER_CONTRACT))
     current_block = w3.eth.blockNumber
     eth_price = gecko.get_price(ids='ethereum', vs_currencies='usd')['ethereum']['usd']
-    logs = flipper.past_logs(6*60*4*20)
+    logs = flipper.past_logs(6 * 60 * 4 * 20)
 
     print(f"Found {len(logs)} logs")
     auctions: dict() = {}
