@@ -61,7 +61,7 @@ else:
 OSM_ABI = json.load(open('./lib/pymaker/pymaker/abi/OSM.abi'))
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
 csv = open("data.csv", "a")
-csv.write("auction id, start block, end block, initial lot, tab, number of bids, final lot, final bid, final price, discount(OSM), ETH price at deal(OSM), discount(uniswap), ETH price at deal(uniswap), winner, dealer\n")
+csv.write("id,start_block,end_block,lot,tab,n_bids,final_lot,final_bid,final_price,discount_OSM,ETH_price_OSM,discount_uniswap,ETH_price_uniswap,winner,dealer\n")
 END_BLOCK = w3.eth.blockNumber
 
 if 'mainnet' in RPC_URL:
@@ -127,7 +127,7 @@ def print_auction_details(auction: List[LogNote], current_block: int):
     start_time = w3.eth.getBlock(auction[0].block).timestamp
 
     if not SKIP_BID_DETAILS:
-    # Bids
+        # Bids
         for i, event in enumerate(auction):
             if isinstance(event, Flipper.TendLog):
                 print(
@@ -156,7 +156,7 @@ def print_auction_details(auction: List[LogNote], current_block: int):
             discount_uniswap = (price_uniswap - final_price) / price_uniswap
             n_bids = len(auction) - 2
             # Write to CSV file, columns:
-            # auction id,start block, end block,initial lot,tab,number of bids,final lot,final bid,final price,discount (OSM),ETH price at deal (OSM),discount (uniswap),ETH price at deal (uniswap), winner, dealer
+            # id,start_block,end_block,lot,tab,n_bids,final_lot,final_bid,final_price,discount_OSM,ETH_price_OSM,discount_uniswap,ETH_price_uniswap,winner,dealer
             csv.write(
                 f"{auction[0].id},{auction[0].block},{auction[-1].block},{auction[0].lot},{format(auction[0].tab)},{n_bids},{last_bid.lot},{last_bid.bid},{final_price},{discount_OSM},{price_OSM},{discount_uniswap},{price_uniswap},{last_bid.guy},{auction[-1].usr}\n")
         elif isinstance(last_bid, Flipper.KickLog):
