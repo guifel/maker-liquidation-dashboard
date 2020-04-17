@@ -15,30 +15,31 @@ from uniswap import UNISWAP_ABI
 
 SKIP_BID_DETAILS = False
 
-START_BLOCK = 8928180   # w3.eth.blockNumber - 15000
 
 UNISWAP_EXCHANGE = ""
 
 ilk = sys.argv[1]
+
+UNISWAP_EXCHANGE_ETH = "0x2a1530C4C41db0B0b2bB646CB5Eb1A67b7158667"
+UNISWAP_EXCHANGE_BAT = "0x2E642b8D59B45a1D8c5aEf716A84FF44ea665914"
+UNISWAP_EXCHANGE_USDC = "0x97deC872013f6B5fB443861090ad931542878126"
+
 
 if ilk == 'ETH-mainnet':
     RPC_URL = "https://parity0.mainnet.makerfoundation.com:8545"
     MAKER_OSM = "0x81FE72B5A8d1A857d176C3E7d5Bd2679A9B85763"
     FLIPPER_CONTRACT = "0xd8a04F5412223F513DC55F839574430f5EC15531"
     COLLATERAL = "ETH"
-    UNISWAP_EXCHANGE = "0x2a1530C4C41db0B0b2bB646CB5Eb1A67b7158667"
 elif ilk == 'BAT-mainnet':
     RPC_URL = "https://parity0.mainnet.makerfoundation.com:8545"
     MAKER_OSM = "0xB4eb54AF9Cc7882DF0121d26c5b97E802915ABe6"
     FLIPPER_CONTRACT = "0xaA745404d55f88C108A28c86abE7b5A1E7817c07"
     COLLATERAL = "BAT"
-    UNISWAP_EXCHANGE = "0x2E642b8D59B45a1D8c5aEf716A84FF44ea665914"
 elif ilk == 'USDC-mainnet':
     RPC_URL = "https://parity0.mainnet.makerfoundation.com:8545"
     MAKER_OSM = "0x77b68899b99b686F415d074278a9a16b336085A0"
     FLIPPER_CONTRACT = "0xE6ed1d09a19Bd335f051d78D5d22dF3bfF2c28B1"
     COLLATERAL = "USDC"
-    UNISWAP_EXCHANGE = "0x97deC872013f6B5fB443861090ad931542878126"
 elif ilk == 'ETH-kovan':
     RPC_URL = "https://parity0.kovan.makerfoundation.com:8545"
     FLIPPER_CONTRACT = "0xB40139Ea36D35d0C9F6a2e62601B616F1FfbBD1b"
@@ -60,13 +61,15 @@ else:
 
 OSM_ABI = json.load(open('./lib/pymaker/pymaker/abi/OSM.abi'))
 w3 = Web3(Web3.HTTPProvider(RPC_URL))
-csv = open("data.csv", "a")
-csv.write("id,start_block,end_block,lot,tab,n_bids,final_lot,final_bid,final_price,discount_OSM,ETH_price_OSM,discount_uniswap,ETH_price_uniswap,winner,dealer\n")
+csv = open("data-bat.csv", "a")
+csv.write("auction id,kick timestamp,kick block,last bid block,lot,tab,number of bids,final lot,final bid,final price,discount OSM,ETH price OSM,discount uniswap,ETH price uniswap,winner,dealer,vault owner, kicker, kick gas price (wei), last bid gas price (wei),last bid timestamp, deal gas price (wei), deal timestamp\n")
+
+START_BLOCK = 8928180 #w3.eth.blockNumber - 50000  # MCD creation: 8928180
 END_BLOCK = w3.eth.blockNumber
 
 if 'mainnet' in RPC_URL:
-    uniswap = w3.eth.contract(address=UNISWAP_EXCHANGE, abi=UNISWAP_ABI)
-
+    uniswap_eth = w3.eth.contract(address=UNISWAP_EXCHANGE_ETH, abi=UNISWAP_ABI)
+    uniswap_bat = w3.eth.contract(address=UNISWAP_EXCHANGE_BAT, abi=UNISWAP_ABI)
 
 def get_OSM_price_at_block(block: int) -> float:
     OSM_contract = w3.eth.contract(address=MAKER_OSM, abi=OSM_ABI)
@@ -84,7 +87,10 @@ def get_uniswap_price(block: int) -> float:
     if 'mainnet' not in RPC_URL:
         return 1
     else:
-        return uniswap.functions.getEthToTokenInputPrice(10**18).call(block_identifier=block) * 10 ** -18
+        if ilk == 'BAT-mainnet':
+            return uniswap_eth.functions.getEthToTokenInputPrice(10**18).call(block_identifier=block) / uniswap_bat.functions.getEthToTokenInputPrice(10**18).call(block_identifier=block)
+        else:
+            return uniswap_eth.functions.getEthToTokenInputPrice(10**18).call(block_identifier=block) * 10 ** -18
 
 
 def format(val) -> str:
@@ -122,9 +128,10 @@ def print_auction_details(auction: List[LogNote], current_block: int):
 
     # Kick
     print(
-        f"Auction {auction[0].id} start at {auction[0].block} by {format(auction[0].usr)} for {format(auction[0].lot)} {COLLATERAL}, raise target {format(auction[0].tab)} DAI")
+        f"Auction {auction[0].id} start at {auction[0].block} vault from {format(auction[0].usr)} for {format(auction[0].lot)} {COLLATERAL}, raise target {format(auction[0].tab)} DAI")
 
     start_time = w3.eth.getBlock(auction[0].block).timestamp
+    kicker_tx = w3.eth.getTransaction(auction[0].tx_hash)
 
     if not SKIP_BID_DETAILS:
         # Bids
@@ -155,19 +162,32 @@ def print_auction_details(auction: List[LogNote], current_block: int):
             discount_OSM = (price_OSM - final_price) / price_OSM
             discount_uniswap = (price_uniswap - final_price) / price_uniswap
             n_bids = len(auction) - 2
+            last_bid_tx = w3.eth.getTransaction(last_bid.tx_hash)
+            last_bid_block = w3.eth.getBlock(last_bid.block)
+            deal_tx = w3.eth.getTransaction(auction[-1].tx_hash)
+            deal_block = w3.eth.getBlock(auction[-1].block)
             # Write to CSV file, columns:
-            # id,start_block,end_block,lot,tab,n_bids,final_lot,final_bid,final_price,discount_OSM,ETH_price_OSM,discount_uniswap,ETH_price_uniswap,winner,dealer
             csv.write(
-                f"{auction[0].id},{auction[0].block},{auction[-1].block},{auction[0].lot},{format(auction[0].tab)},{n_bids},{last_bid.lot},{last_bid.bid},{final_price},{discount_OSM},{price_OSM},{discount_uniswap},{price_uniswap},{last_bid.guy},{auction[-1].usr}\n")
+                f"{auction[0].id},{start_time},{auction[0].block},{auction[-1].block},{auction[0].lot},{format(auction[0].tab)},{n_bids},{last_bid.lot},{last_bid.bid},{final_price},{discount_OSM},{price_OSM},{discount_uniswap},{price_uniswap},{last_bid.guy},{auction[-1].usr},{auction[0].usr},{kicker_tx['from']},{kicker_tx['gasPrice']},{last_bid_tx['gasPrice']},{last_bid_block.timestamp},{deal_tx['gasPrice']},{deal_block.timestamp}\n")
         elif isinstance(last_bid, Flipper.KickLog):
             print(f"Auction with no bid, won by the kicker")
     elif isinstance(auction[-1], Flipper.TendLog) or isinstance(auction[-1], Flipper.DentLog):
         # Last log is a Tend/Dent
-        last_bid = auction[-2]
+        last_bid = auction[-1]
+        price_OSM, price_uniswap, price_print = print_price_info(last_bid.bid, last_bid.lot, last_bid.block)
+        final_price = float(last_bid.bid) / float(last_bid.lot)
+        discount_OSM = (price_OSM - final_price) / price_OSM
+        discount_uniswap = (price_uniswap - final_price) / price_uniswap
+        last_bid_tx = w3.eth.getTransaction(last_bid.tx_hash)
+        last_bid_block = w3.eth.getBlock(last_bid.block)
+        csv.write(
+                f"{auction[0].id},{start_time},{auction[0].block},NO DEAL,{auction[0].lot},{format(auction[0].tab)},{len(auction) - 1},{last_bid.lot},{last_bid.bid},{final_price},{discount_OSM},{price_OSM},{discount_uniswap},{price_uniswap},{last_bid.guy},NO DEAL,{auction[0].usr},{kicker_tx['from']},{kicker_tx['gasPrice']},{last_bid_tx['gasPrice']},{last_bid_block.timestamp},NO DEAL,NO DEAL\n")
         print(
             f"    Auction pending, block to tick {(start_time + 6*60*60  - time.time())/60} min")
     elif isinstance(auction[-1], Flipper.KickLog):
         # Last log is a kick
+        csv.write(
+                f"{auction[0].id},{start_time},{auction[0].block},NO BID,{auction[0].lot},{format(auction[0].tab)},{0},NO BID,NO BID,NO BID,NO BID,NO BID,NO BID,NO BID,NO BID,NO BID,{auction[0].usr},{kicker_tx['from']},{kicker_tx['gasPrice']},NO BID,NO BID,NO BID,NO BID\n")
         print(f"Auction just kick")
 
 
